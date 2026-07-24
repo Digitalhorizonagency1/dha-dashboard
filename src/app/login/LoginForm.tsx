@@ -49,7 +49,7 @@ export default function LoginForm() {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="rounded-md border border-[var(--border)] bg-[var(--bg-input)] px-3 py-2.5 text-[var(--text)] outline-none focus-visible:border-[var(--accent)]"
+          className="input"
           placeholder="••••••••"
         />
       </div>
@@ -60,10 +60,11 @@ export default function LoginForm() {
         </p>
       )}
 
+
       <button
         type="submit"
         disabled={loading}
-        className="mt-2 rounded-md bg-[var(--accent)] px-4 py-2.5 font-medium text-[#04120a] transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="mt-2 rounded-full bg-[var(--accent)] px-4 py-2.5 font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
       >
         {loading ? "Vérification…" : "Entrer"}
       </button>

@@ -162,7 +162,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] p-6">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-[family-name:var(--font-display)] text-lg">
             {isNew ? "Nouvel article" : "Modifier l'article"}
@@ -333,14 +333,14 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-dim)] hover:text-[var(--text)]"
+                className="rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm text-[var(--text-dim)] hover:text-[var(--text)]"
               >
                 Annuler
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[#04120a] transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
               >
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </button>

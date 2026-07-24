@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Space_Mono } from "next/font/google";
+import { Inter, Fraunces, Space_Mono } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
@@ -7,8 +7,15 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-const spaceMono = Space_Mono({
+const fraunces = Fraunces({
   variable: "--font-display",
+  weight: ["500", "600"],
+  style: ["normal", "italic"],
+  subsets: ["latin"],
+});
+
+const spaceMono = Space_Mono({
+  variable: "--font-mono",
   weight: ["400", "700"],
   subsets: ["latin"],
 });
@@ -24,7 +31,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className={`${inter.variable} ${spaceMono.variable} h-full`}>
+    <html
+      lang="fr"
+      className={`${inter.variable} ${fraunces.variable} ${spaceMono.variable} h-full`}
+    >
       <body className="min-h-full flex flex-col antialiased">{children}</body>
     </html>
   );

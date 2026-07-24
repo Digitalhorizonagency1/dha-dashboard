@@ -29,13 +29,13 @@ export default async function ArticlesPage() {
   const articles = await getArticles();
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-10">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-10">
       <header className="flex items-center justify-between">
-        <div>
-          <span className="font-[family-name:var(--font-display)] text-xs tracking-[0.3em] text-[var(--text-dim)]">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-medium uppercase tracking-[0.25em] text-[var(--accent)]">
             DHA
           </span>
-          <h1 className="font-[family-name:var(--font-display)] text-2xl">
+          <h1 className="font-[family-name:var(--font-display)] text-3xl italic">
             Catalogue d&apos;articles
           </h1>
         </div>

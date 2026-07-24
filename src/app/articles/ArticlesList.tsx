@@ -10,16 +10,10 @@ function stockLevel(stock: number): "ok" | "low" | "out" {
   return "ok";
 }
 
-const stockColor: Record<string, string> = {
-  ok: "var(--accent)",
-  low: "var(--warn)",
-  out: "var(--danger)",
-};
-
-const stockLabel: Record<string, string> = {
-  ok: "En stock",
-  low: "Stock faible",
-  out: "Épuisé",
+const stockStyles: Record<string, { bg: string; text: string; label: string }> = {
+  ok: { bg: "var(--ok-soft)", text: "var(--ok)", label: "En stock" },
+  low: { bg: "var(--warn-soft)", text: "var(--warn)", label: "Stock faible" },
+  out: { bg: "var(--danger-soft)", text: "var(--danger)", label: "Épuisé" },
 };
 
 export default function ArticlesList({ initialArticles }: { initialArticles: Article[] }) {
@@ -43,89 +37,110 @@ export default function ArticlesList({ initialArticles }: { initialArticles: Art
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
           <input
             type="checkbox"
             checked={showInactive}
             onChange={(e) => setShowInactive(e.target.checked)}
-            className="accent-[var(--accent)]"
+            className="h-4 w-4 accent-[var(--accent)]"
           />
           Afficher les articles désactivés
         </label>
         <button
           onClick={() => setCreating(true)}
-          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[#04120a] transition-opacity hover:opacity-90"
+          className="rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
         >
           + Ajouter un article
         </button>
       </div>
 
       {visibleArticles.length === 0 && (
-        <p className="rounded-md border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--text-dim)]">
-          Aucun article pour l&apos;instant. Ajoutez le premier avec le bouton ci-dessus.
-        </p>
+        <div className="card flex flex-col items-center gap-2 border-dashed px-6 py-16 text-center">
+          <span className="font-[family-name:var(--font-display)] text-lg italic text-[var(--text-dim)]">
+            Le rayon est vide
+          </span>
+          <p className="text-sm text-[var(--text-dim)]">
+            Ajoutez votre premier article avec le bouton ci-dessus.
+          </p>
+        </div>
       )}
 
-      <ul className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {visibleArticles.map((article) => {
           const level = stockLevel(article.stock);
+          const style = stockStyles[level];
           return (
-            <li
+            <button
               key={article.id}
-              className="flex items-center gap-4 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-raised)]"
-              style={{ borderLeftColor: stockColor[level], borderLeftWidth: 4 }}
+              onClick={() => setEditing(article)}
+              className="card group flex flex-col overflow-hidden text-left hover:-translate-y-0.5"
+              style={{ boxShadow: "var(--shadow-card)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = "var(--shadow-card-hover)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = "var(--shadow-card)";
+              }}
             >
-              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden bg-[var(--bg-input)]">
+              <div className="relative aspect-square w-full overflow-hidden bg-[var(--accent-soft)]">
                 {article.images?.[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={article.images[0]}
                     alt={article.nom}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                   />
                 ) : (
-                  <span className="text-xs text-[var(--text-dim)]">Pas de photo</span>
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-[var(--accent)]">
+                    <span className="text-3xl">📷</span>
+                    <span className="text-xs text-[var(--text-dim)]">Pas de photo</span>
+                  </div>
+                )}
+
+                <span
+                  className="absolute right-2.5 top-2.5 rounded-full px-2.5 py-1 text-xs font-medium"
+                  style={{ background: style.bg, color: style.text }}
+                >
+                  {style.label} ({article.stock})
+                </span>
+
+                {!article.actif && (
+                  <span className="absolute left-2.5 top-2.5 rounded-full bg-[var(--text)] px-2.5 py-1 text-xs font-medium text-white">
+                    Désactivé
+                  </span>
                 )}
               </div>
 
-              <div className="flex flex-1 flex-col gap-0.5 py-3">
-                <span className="font-medium">
+              <div className="flex flex-1 flex-col gap-2 p-4">
+                <span className="font-[family-name:var(--font-display)] text-lg leading-tight">
                   {article.nom}
-                  {!article.actif && (
-                    <span className="ml-2 text-xs text-[var(--text-dim)]">(désactivé)</span>
-                  )}
                 </span>
-                <span className="text-sm text-[var(--text-dim)]">
-                  {[article.marque, article.couleur, article.categorie]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </div>
 
-              <div className="flex flex-col items-end gap-0.5 py-3 pr-2 text-right">
-                <span className="font-[family-name:var(--font-display)] text-sm">
+                {(article.marque || article.couleur) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {article.marque && (
+                      <span className="rounded-full bg-[var(--bg)] px-2.5 py-0.5 text-xs text-[var(--text-dim)]">
+                        {article.marque}
+                      </span>
+                    )}
+                    {article.couleur && (
+                      <span className="rounded-full bg-[var(--bg)] px-2.5 py-0.5 text-xs text-[var(--text-dim)]">
+                        {article.couleur}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <span className="mt-auto pt-2 font-[family-name:var(--font-mono)] text-base">
                   {article.prix.toLocaleString("fr-FR")} {article.devise}
                 </span>
-                <span
-                  className="font-[family-name:var(--font-display)] text-xs"
-                  style={{ color: stockColor[level] }}
-                >
-                  {stockLabel[level]} ({article.stock})
-                </span>
               </div>
-
-              <button
-                onClick={() => setEditing(article)}
-                className="mr-4 flex-shrink-0 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-dim)] transition-colors hover:border-[var(--text-dim)] hover:text-[var(--text)]"
-              >
-                Modifier
-              </button>
-            </li>
+            </button>
           );
         })}
-      </ul>
+      </div>
 
       {(editing || creating) && (
         <ArticleForm
