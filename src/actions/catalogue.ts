@@ -10,22 +10,52 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export async function saveArticleAction(data: CatalogueArticleFormData) {
   try {
     // 1. Validation de la contrainte batterie_pct
-    if (data.etat === 'reconditionne') {
-      if (data.batterie_pct === null || data.batterie_pct === undefined || data.batterie_pct < 0 || data.batterie_pct > 100) {
-        return { success: false, error: 'Pour un article reconditionné, le % de batterie est obligatoire (0-100%).' };
+    //    'reconditionne' ET 'les_deux' exigent tous les deux une batterie renseignée
+    //    (les_deux implique qu'au moins un palier reconditionné existe).
+    if (data.etat === 'reconditionne' || data.etat === 'les_deux') {
+      if (
+        data.batterie_pct === null ||
+        data.batterie_pct === undefined ||
+        data.batterie_pct < 0 ||
+        data.batterie_pct > 100
+      ) {
+        return {
+          success: false,
+          error: "Le % de batterie est obligatoire (0-100%) dès qu'un état reconditionné ou mixte est sélectionné.",
+        };
       }
     } else {
-      // Si l'article est neuf, la batterie_pct doit être NULL
+      // Seul le neuf pur force batterie_pct à NULL
       data.batterie_pct = null;
     }
 
-    // 2. Calcul du prix dérivé (le plus bas palier) et du stock total
+    // 1bis. Cohérence des paliers pour 'les_deux' : au moins un palier neuf
+    //       ET un palier reconditionné doivent être présents, chacun tagué.
     const options = data.stockage_options || [];
-    const minPrix = options.length > 0 
+
+    if (options.some((opt) => opt.etat !== 'neuf' && opt.etat !== 'reconditionne')) {
+      return {
+        success: false,
+        error: "Chaque palier de stockage doit préciser etat = 'neuf' ou 'reconditionne'.",
+      };
+    }
+
+    if (data.etat === 'les_deux') {
+      const aNeuf = options.some((opt) => opt.etat === 'neuf');
+      const aRecond = options.some((opt) => opt.etat === 'reconditionne');
+      if (!aNeuf || !aRecond) {
+        return {
+          success: false,
+          error: "'les_deux' nécessite au moins un palier neuf et un palier reconditionné.",
+        };
+      }
+    }
+
+    // 2. Calcul du prix dérivé (le plus bas palier) et du stock total
+    const minPrix = options.length > 0
       ? Math.min(...options.map((opt) => Number(opt.prix)))
       : 0;
-
-    const totalStock = options.length > 0 
+    const totalStock = options.length > 0
       ? options.reduce((sum, opt) => sum + Number(opt.quantite), 0)
       : 0;
 
@@ -48,7 +78,6 @@ export async function saveArticleAction(data: CatalogueArticleFormData) {
 
     let result;
     if (data.id) {
-      // Modification
       result = await supabase
         .from('catalogue_articles')
         .update(payload)
@@ -56,7 +85,6 @@ export async function saveArticleAction(data: CatalogueArticleFormData) {
         .select()
         .single();
     } else {
-      // Création
       result = await supabase
         .from('catalogue_articles')
         .insert(payload)
