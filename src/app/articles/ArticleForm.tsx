@@ -1,373 +1,445 @@
 "use client";
 
-import { useRef, useState } from "react";
+import React, { useState } from "react";
 import type { Article } from "@/lib/types";
-import {
-  createArticle,
-  updateArticle,
-  deleteArticle,
-  uploadArticlePhoto,
-  removeArticlePhoto,
-  type ArticleInput,
-} from "@/actions/articles";
+import { createClient } from "@supabase/supabase-js";
 
-type Props = {
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export interface StockageOption {
+  stockage: string;
+  prix: number;
+  quantite: number;
+}
+
+interface ArticleFormProps {
   article: Article | null;
   onClose: () => void;
   onSaved: (article: Article, isNew: boolean) => void;
-  onDeactivated: (id: string) => void;
-};
+  onDeactivated?: (id: string) => void;
+}
 
-const emptyInput: ArticleInput = {
-  nom: "",
-  categorie: "",
-  marque: "",
-  couleur: "",
-  prix: 0,
-  devise: "XOF",
-  stock: 0,
-  description: "",
-  actif: true,
-};
-
-export default function ArticleForm({ article, onClose, onSaved, onDeactivated }: Props) {
-  const isNew = article === null;
-  const [input, setInput] = useState<ArticleInput>(
-    article
-      ? {
-          nom: article.nom,
-          categorie: article.categorie,
-          marque: article.marque ?? "",
-          couleur: article.couleur ?? "",
-          prix: article.prix,
-          devise: article.devise,
-          stock: article.stock,
-          description: article.description ?? "",
-          actif: article.actif,
-        }
-      : emptyInput
-  );
-  const [images, setImages] = useState<string[]>(article?.images ?? []);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+export default function ArticleForm({
+  article,
+  onClose,
+  onSaved,
+  onDeactivated,
+}: ArticleFormProps) {
+  const isNew = !article?.id;
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function updateField<K extends keyof ArticleInput>(key: K, value: ArticleInput[K]) {
-    setInput((prev) => ({ ...prev, [key]: value }));
-  }
+  // Champs de base
+  const [nom, setNom] = useState(article?.nom || "");
+  const [categorie, setCategorie] = useState(article?.categorie || "smartphone");
+  const [marque, setMarque] = useState(article?.marque || (article?.attributs?.marque as string) || "");
+  const [couleur, setCouleur] = useState(article?.couleur || "");
+  const [devise, setDevise] = useState(article?.devise || "FCFA");
+  const [description, setDescription] = useState(article?.description || "");
+  
+  // Photos
+  const [imagesText, setImagesText] = useState(
+    article?.images ? article.images.join("\n") : ""
+  );
+
+  // Case à cocher Reconditionné
+  const [isReconditionne, setIsReconditionne] = useState<boolean>(
+    article?.etat === "reconditionne"
+  );
+
+  // Pourcentage de Batterie (Uniquement si Reconditionné)
+  const [batteriePct, setBatteriePct] = useState<number | "">(
+    article?.batterie_pct ?? 85
+  );
+
+  // Paliers de Stockage & Prix (Disponibles pour Neuf ET Reconditionné)
+  const initialStockage: StockageOption[] = 
+    article?.stockage_options && article.stockage_options.length > 0
+      ? article.stockage_options
+      : [{ stockage: "128GB", prix: article?.prix || 0, quantite: article?.stock || 1 }];
+
+  const [stockageOptions, setStockageOptions] = useState<StockageOption[]>(initialStockage);
+
+  // Calculs dynamiques du prix plancher et du stock total
+  const prixMin = stockageOptions.length > 0
+    ? Math.min(...stockageOptions.map((o) => Number(o.prix) || 0))
+    : Number(article?.prix || 0);
+
+  const stockTotal = stockageOptions.reduce((acc, o) => acc + (Number(o.quantite) || 0), 0);
+
+  const handleAddPalier = () => {
+    setStockageOptions([
+      ...stockageOptions,
+      { stockage: "", prix: prixMin || 0, quantite: 1 },
+    ]);
+  };
+
+  const handleRemovePalier = (idx: number) => {
+    if (stockageOptions.length > 1) {
+      setStockageOptions(stockageOptions.filter((_, i) => i !== idx));
+    }
+  };
+
+  const handlePalierChange = (
+    idx: number,
+    field: keyof StockageOption,
+    value: string | number
+  ) => {
+    const updated = [...stockageOptions];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setStockageOptions(updated);
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setLoading(true);
     setError(null);
-    setSaving(true);
 
-    const result = isNew
-      ? await createArticle(input)
-      : await updateArticle(article!.id, input);
+    try {
+      const images = imagesText
+        .split("\n")
+        .map((u) => u.trim())
+        .filter((u) => u.length > 0);
 
-    setSaving(false);
+      const etat = isReconditionne ? "reconditionne" : "neuf";
+      const batterie = isReconditionne ? Number(batteriePct) || 85 : null;
 
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
+      const cleanedOptions = stockageOptions.map((opt) => ({
+        stockage: opt.stockage.trim() || "Standard",
+        prix: Number(opt.prix) || 0,
+        quantite: Number(opt.quantite) || 0,
+      }));
 
-    // On reconstruit un objet Article complet pour la mise à jour optimiste
-    // côté liste (id réel non disponible immédiatement pour une création :
-    // dans ce cas on referme et laisse la revalidation de page faire foi).
-    if (isNew) {
-      onClose();
-      // Rechargement simple pour récupérer l'id généré côté serveur
-      window.location.reload();
-      return;
-    }
-
-    onSaved(
-      {
-        ...article!,
-        ...input,
-        marque: input.marque || null,
-        couleur: input.couleur || null,
-        description: input.description || null,
+      const payload = {
+        nom,
+        categorie,
+        marque: marque || null,
+        couleur: couleur || null,
+        devise,
         images,
-      },
-      false
-    );
-  }
+        description: description || null,
+        etat,
+        batterie_pct: batterie,
+        stockage_options: cleanedOptions,
+        prix: prixMin,
+        stock: stockTotal,
+        actif: article?.actif ?? true,
+        attributs: { ...(article?.attributs || {}), marque },
+      };
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !article) return;
+      let resData: Article;
 
-    setUploading(true);
-    setError(null);
+      if (isNew) {
+        const { data, error: err } = await supabase
+          .from("catalogue_articles")
+          .insert(payload)
+          .select()
+          .single();
 
-    const formData = new FormData();
-    formData.set("file", file);
+        if (err) throw new Error(err.message);
+        resData = data as Article;
+      } else {
+        const { data, error: err } = await supabase
+          .from("catalogue_articles")
+          .update(payload)
+          .eq("id", article.id)
+          .select()
+          .single();
 
-    const result = await uploadArticlePhoto(article.id, formData);
-    setUploading(false);
+        if (err) throw new Error(err.message);
+        resData = data as Article;
+      }
 
-    // Permet de re-sélectionner le même fichier une deuxième fois si besoin
-    e.target.value = "";
-
-    if (!result.ok) {
-      setError(result.error);
-      return;
+      onSaved(resData, isNew);
+      onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur lors de l'enregistrement";
+      setError(msg);
+    } finally {
+      setLoading(false);
     }
-
-    // Ajoute la nouvelle photo en tête, sans recharger toute la page :
-    // le formulaire reste ouvert et on peut enchaîner plusieurs photos.
-    setImages((prev) => [result.url, ...prev]);
-  }
-
-  async function handleRemovePhoto(url: string) {
-    if (!article) return;
-    const previousImages = images;
-    setImages((prev) => prev.filter((u) => u !== url));
-
-    const result = await removeArticlePhoto(article.id, url);
-    if (!result.ok) {
-      setError(result.error);
-      // Échec : on remet la photo dans la liste locale plutôt que de
-      // recharger toute la page (ce qui fermerait le formulaire).
-      setImages(previousImages);
-    }
-  }
-
-  async function handleDeactivate() {
-    if (!article) return;
-    if (!confirm(`Désactiver "${article.nom}" ? Il n'apparaîtra plus dans le bot.`)) return;
-
-    setSaving(true);
-    const result = await deleteArticle(article.id);
-    setSaving(false);
-
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-
-    onDeactivated(article.id);
-    onClose();
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-[family-name:var(--font-display)] text-lg">
-            {isNew ? "Nouvel article" : "Modifier l'article"}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+      <div className="relative my-8 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 text-slate-800 space-y-6">
+        <div className="flex items-center justify-between border-b pb-4">
+          <h2 className="text-xl font-bold text-slate-900">
+            {isNew ? "Ajouter un article" : "Modifier l'article"}
           </h2>
           <button
             onClick={onClose}
-            aria-label="Fermer"
-            className="text-[var(--text-dim)] hover:text-[var(--text)]"
+            type="button"
+            className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
           >
             ✕
           </button>
         </div>
 
-        {!isNew && (
-          <div className="mb-5 flex flex-col gap-2">
-            <span className="text-sm text-[var(--text-dim)]">Photos</span>
-            <div className="flex flex-wrap gap-2">
-              {images.map((url) => (
-                <div key={url} className="group relative h-20 w-20 overflow-hidden rounded-md">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="h-full w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePhoto(url)}
-                    className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
-                  >
-                    Retirer
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="flex h-20 w-20 flex-col items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-dim)] hover:border-[var(--text-dim)]"
-              >
-                {uploading ? "Envoi…" : "+ Photo"}
-              </button>
+        {error && (
+          <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm border border-red-200">
+            ⚠️ {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Nom du produit & Catégorie */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Nom du produit *
+              </label>
               <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={handleFileChange}
+                type="text"
+                required
+                placeholder="ex: iPhone 13"
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
               />
             </div>
-            <span className="text-xs text-[var(--text-dim)]">
-              La première photo est utilisée comme image principale.
-            </span>
-          </div>
-        )}
-
-        {isNew && (
-          <p className="mb-4 rounded-md bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-dim)]">
-            Enregistrez d&apos;abord l&apos;article pour pouvoir y ajouter des photos.
-          </p>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <Field label="Nom" required>
-            <input
-              required
-              value={input.nom}
-              onChange={(e) => updateField("nom", e.target.value)}
-              className="input"
-            />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Catégorie" required>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Catégorie *
+              </label>
               <input
+                type="text"
                 required
-                value={input.categorie}
-                onChange={(e) => updateField("categorie", e.target.value)}
-                className="input"
+                placeholder="ex: smartphone"
+                value={categorie}
+                onChange={(e) => setCategorie(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
               />
-            </Field>
-            <Field label="Marque">
-              <input
-                value={input.marque}
-                onChange={(e) => updateField("marque", e.target.value)}
-                className="input"
-              />
-            </Field>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Couleur">
+          {/* Marque, Couleur, Devise */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Marque
+              </label>
               <input
-                value={input.couleur}
-                onChange={(e) => updateField("couleur", e.target.value)}
-                className="input"
+                type="text"
+                placeholder="ex: Apple"
+                value={marque}
+                onChange={(e) => setMarque(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
               />
-            </Field>
-            <Field label="Devise">
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Couleur(s)
+              </label>
               <input
-                value={input.devise}
-                onChange={(e) => updateField("devise", e.target.value)}
-                className="input"
+                type="text"
+                placeholder="ex: Noir, Bleu"
+                value={couleur}
+                onChange={(e) => setCouleur(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
               />
-            </Field>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Devise
+              </label>
+              <input
+                type="text"
+                value={devise}
+                onChange={(e) => setDevise(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Prix" required>
+          {/* CASE À COCHER : RECONDITIONNÉ + POURCENTAGE BATTERIE CONDITIONNEL */}
+          <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 space-y-3">
+            <div className="flex items-center gap-3">
               <input
-                type="number"
-                min={0}
-                step="1"
-                required
-                value={input.prix}
-                onChange={(e) => updateField("prix", Number(e.target.value))}
-                className="input"
+                type="checkbox"
+                id="reconditionne-toggle"
+                checked={isReconditionne}
+                onChange={(e) => setIsReconditionne(e.target.checked)}
+                className="h-5 w-5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
               />
-            </Field>
-            <Field label="Stock" required>
-              <input
-                type="number"
-                min={0}
-                step="1"
-                required
-                value={input.stock}
-                onChange={(e) => updateField("stock", Number(e.target.value))}
-                className="input"
-              />
-            </Field>
+              <label
+                htmlFor="reconditionne-toggle"
+                className="font-bold text-slate-800 cursor-pointer select-none"
+              >
+                Cet article est Reconditionné
+              </label>
+            </div>
+
+            {/* APPARAÎT SEULEMENT SI COCHÉ */}
+            {isReconditionne && (
+              <div className="pt-3 border-t border-slate-200 bg-amber-50/80 p-3 rounded-lg border border-amber-200 space-y-1">
+                <label className="block text-sm font-bold text-amber-900">
+                  Pourcentage de la batterie (%) *
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    required={isReconditionne}
+                    placeholder="ex: 88"
+                    value={batteriePct}
+                    onChange={(e) =>
+                      setBatteriePct(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                    className="w-28 rounded-lg border border-slate-300 p-2 text-center text-lg font-bold text-emerald-600 bg-white outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <span className="text-xs text-amber-800 font-medium">
+                    (Pourcentage certifié de la batterie)
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
-          <Field label="Description">
-            <textarea
-              value={input.description}
-              onChange={(e) => updateField("description", e.target.value)}
-              rows={3}
-              className="input resize-none"
-            />
-          </Field>
-
-          <label className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
-            <input
-              type="checkbox"
-              checked={input.actif}
-              onChange={(e) => updateField("actif", e.target.checked)}
-              className="accent-[var(--accent)]"
-            />
-            Actif (visible par le bot)
-          </label>
-
-          {error && (
-            <p role="alert" className="text-sm text-[var(--danger)]">
-              {error}
-            </p>
-          )}
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            {!isNew ? (
+          {/* PALIERS DE STOCKAGE, PRIX ET STOCKS ASSOCIÉS (NEUF & RECONDITIONNÉ) */}
+          <div className="rounded-xl bg-amber-50/40 p-4 border border-amber-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+                  Capacités de Stockage & Prix *
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Associez chaque stockage à son prix et à son stock ({isReconditionne ? 'Reconditionné' : 'Neuf'}).
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={handleDeactivate}
-                className="text-sm text-[var(--danger)] hover:opacity-80"
+                onClick={handleAddPalier}
+                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-amber-600"
               >
-                Désactiver l&apos;article
+                + Ajouter une capacité
               </button>
-            ) : (
-              <span />
-            )}
+            </div>
 
-            <div className="flex gap-2">
+            {stockageOptions.map((opt, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm"
+              >
+                <div className="w-1/3">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">
+                    Stockage
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ex: 128GB"
+                    value={opt.stockage}
+                    onChange={(e) => handlePalierChange(idx, "stockage", e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="w-1/3">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">
+                    Prix ({devise})
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="ex: 245000"
+                    value={opt.prix || ""}
+                    onChange={(e) => handlePalierChange(idx, "prix", Number(e.target.value))}
+                    className="w-full rounded-lg border border-slate-300 p-1.5 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="w-1/4">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">
+                    Stock
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="ex: 5"
+                    value={opt.quantite}
+                    onChange={(e) => handlePalierChange(idx, "quantite", Number(e.target.value))}
+                    className="w-full rounded-lg border border-slate-300 p-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+
+                {stockageOptions.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePalier(idx)}
+                    className="mt-3 p-1.5 text-xs font-bold text-red-500 hover:text-red-700"
+                    title="Supprimer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* URLs Photos */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+              URLs des Photos (une par ligne)
+            </label>
+            <textarea
+              rows={2}
+              placeholder="https://..."
+              value={imagesText}
+              onChange={(e) => setImagesText(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+              Description
+            </label>
+            <textarea
+              rows={3}
+              placeholder="Spécifications techniques..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+
+          {/* Boutons d'actions */}
+          <div className="flex items-center justify-between pt-4 border-t">
+            {!isNew && onDeactivated && (
+              <button
+                type="button"
+                onClick={() => onDeactivated(article!.id!)}
+                className="text-xs text-red-500 hover:underline"
+              >
+                Désactiver l'article
+              </button>
+            )}
+            <div className="ml-auto flex gap-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm text-[var(--text-dim)] hover:text-[var(--text)]"
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
               >
                 Annuler
               </button>
               <button
                 type="submit"
-                disabled={saving}
-                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                disabled={loading}
+                className="rounded-xl bg-amber-500 px-6 py-2 text-sm font-bold text-white shadow hover:bg-amber-600 disabled:opacity-50"
               >
-                {saving ? "Enregistrement…" : "Enregistrer"}
+                {loading ? "Enregistrement..." : "Enregistrer"}
               </button>
             </div>
           </div>
         </form>
       </div>
     </div>
-  );
-}
-
-function Field({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="text-[var(--text-dim)]">
-        {label}
-        {required && <span className="text-[var(--danger)]"> *</span>}
-      </span>
-      {children}
-    </label>
   );
 }
