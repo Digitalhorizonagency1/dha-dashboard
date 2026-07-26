@@ -54,10 +54,12 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
       : emptyInput
   );
 
-  // État Reconditionné & Batterie
+  // État du produit : Neuf ou Reconditionné
   const [isReconditionne, setIsReconditionne] = useState<boolean>(
     article?.etat === "reconditionne"
   );
+  
+  // Batterie (%) si Reconditionné
   const [batteriePct, setBatteriePct] = useState<number | "">(
     article?.batterie_pct ?? 85
   );
@@ -68,7 +70,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
     Array.isArray(article.stockage_options) &&
     article.stockage_options.length > 0
       ? (article.stockage_options as StockageOption[])
-      : [{ stockage: "128GB", prix: article?.prix || 0, quantite: article?.stock || 0 }];
+      : [{ stockage: "128GB", prix: article?.prix || 0, quantite: article?.stock || 1 }];
 
   const [stockageOptions, setStockageOptions] = useState<StockageOption[]>(initialStockage);
 
@@ -134,7 +136,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
 
     const result = isNew
       ? await createArticle(payload as ArticleInput)
-      : await updateArticle(article!.id!, payload as ArticleInput); // <-- CORRECTION (id!)
+      : await updateArticle(article!.id!, payload as ArticleInput);
 
     setSaving(false);
 
@@ -330,25 +332,42 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
             </Field>
           </div>
 
-          {/* CASE À COCHER : RECONDITIONNÉ */}
+          {/* SÉLECTION DE L'ÉTAT (BOUTONS RADIO) */}
           <div className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-input)] p-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-[var(--text)] cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isReconditionne}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setIsReconditionne(checked);
-                  if (checked && !batteriePct) setBatteriePct(85);
-                }}
-                className="h-4 w-4 accent-[var(--accent)]"
-              />
-              Cet article est reconditionné
-            </label>
+            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-dim)]">
+              État du produit
+            </span>
+            <div className="flex items-center gap-6 pt-1">
+              <label className="flex items-center gap-2 text-sm font-medium text-[var(--text)] cursor-pointer select-none">
+                <input
+                  type="radio"
+                  name="etat-radio"
+                  checked={!isReconditionne}
+                  onChange={() => setIsReconditionne(false)}
+                  className="accent-[var(--accent)] h-4 w-4"
+                />
+                ✨ Neuf
+              </label>
 
+              <label className="flex items-center gap-2 text-sm font-medium text-[var(--text)] cursor-pointer select-none">
+                <input
+                  type="radio"
+                  name="etat-radio"
+                  checked={isReconditionne}
+                  onChange={() => {
+                    setIsReconditionne(true);
+                    if (!batteriePct) setBatteriePct(85);
+                  }}
+                  className="accent-[var(--accent)] h-4 w-4"
+                />
+                🔄 Reconditionné
+              </label>
+            </div>
+
+            {/* BATTERIE (%) S'AFFICHE UNIQUEMENT SI RECONDITIONNÉ */}
             {isReconditionne && (
-              <div className="mt-1 pt-2 border-t border-[var(--border)]">
-                <Field label="Batterie (%)" required>
+              <div className="mt-2 pt-2 border-t border-[var(--border)]">
+                <Field label="Santé Batterie (%)" required>
                   <input
                     type="number"
                     min={1}
@@ -359,18 +378,18 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
                     onChange={(e) =>
                       setBatteriePct(e.target.value === "" ? "" : Number(e.target.value))
                     }
-                    className="input w-28 text-center font-bold text-[var(--accent)]"
+                    className="input w-32 font-bold text-[var(--accent)]"
                   />
                 </Field>
               </div>
             )}
           </div>
 
-          {/* PALIERS DE STOCKAGE & PRIX ASSOCIÉS */}
+          {/* PALIERS DE STOCKAGE & PRIX ASSOCIÉS (RESTRUCTURÉ SANS DÉBORDEMENT) */}
           <div className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-input)] p-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between pb-1 border-b border-[var(--border)]">
               <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-dim)]">
-                Capacités & Prix
+                Capacités & Prix ({isReconditionne ? 'Reconditionné' : 'Neuf'})
               </span>
               <button
                 type="button"
@@ -382,48 +401,66 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
             </div>
 
             {stockageOptions.map((opt, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <div className="flex-1">
-                  <input
-                    placeholder="Stockage (ex: 128GB)"
-                    required
-                    value={opt.stockage}
-                    onChange={(e) => handlePalierChange(idx, "stockage", e.target.value)}
-                    className="input"
-                  />
+              <div key={idx} className="flex flex-col gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-card)] p-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[var(--text-dim)]">
+                    Option #{idx + 1}
+                  </span>
+                  {stockageOptions.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePalier(idx)}
+                      className="text-[11px] text-[var(--danger)] hover:underline"
+                    >
+                      Supprimer
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1">
-                  <input
-                    type="number"
-                    placeholder={`Prix (${input.devise})`}
-                    required
-                    min={0}
-                    value={opt.prix || ""}
-                    onChange={(e) => handlePalierChange(idx, "prix", Number(e.target.value))}
-                    className="input font-semibold"
-                  />
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-[var(--text-dim)] mb-0.5">
+                      Stockage
+                    </label>
+                    <input
+                      placeholder="ex: 128GB"
+                      required
+                      value={opt.stockage}
+                      onChange={(e) => handlePalierChange(idx, "stockage", e.target.value)}
+                      className="input text-xs w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-medium text-[var(--text-dim)] mb-0.5">
+                      Prix ({input.devise})
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Prix"
+                      required
+                      min={0}
+                      value={opt.prix || ""}
+                      onChange={(e) => handlePalierChange(idx, "prix", Number(e.target.value))}
+                      className="input text-xs w-full font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-medium text-[var(--text-dim)] mb-0.5">
+                      Stock
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Stock"
+                      required
+                      min={0}
+                      value={opt.quantite}
+                      onChange={(e) => handlePalierChange(idx, "quantite", Number(e.target.value))}
+                      className="input text-xs w-full"
+                    />
+                  </div>
                 </div>
-                <div className="w-20">
-                  <input
-                    type="number"
-                    placeholder="Stock"
-                    required
-                    min={0}
-                    value={opt.quantite}
-                    onChange={(e) => handlePalierChange(idx, "quantite", Number(e.target.value))}
-                    className="input"
-                  />
-                </div>
-                {stockageOptions.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePalier(idx)}
-                    className="p-1 text-xs text-[var(--danger)] hover:opacity-80"
-                    title="Supprimer"
-                  >
-                    ✕
-                  </button>
-                )}
               </div>
             ))}
           </div>
