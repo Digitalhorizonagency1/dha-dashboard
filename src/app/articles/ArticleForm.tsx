@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Article, StockageOption } from "@/lib/types";
+import type { Article } from "@/lib/types";
 import {
   createArticle,
   updateArticle,
@@ -10,6 +10,12 @@ import {
   removeArticlePhoto,
   type ArticleInput,
 } from "@/actions/articles";
+
+export interface StockageOption {
+  stockage: string;
+  prix: number;
+  quantite: number;
+}
 
 type Props = {
   article: Article | null;
@@ -43,7 +49,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
           devise: article.devise,
           stock: article.stock,
           description: article.description ?? "",
-          actif: article.actif,
+          actif: article.actif ?? true, // <-- CORRECTION ICI (garantit un booléen strict)
         }
       : emptyInput
   );
@@ -61,7 +67,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
     article?.stockage_options &&
     Array.isArray(article.stockage_options) &&
     article.stockage_options.length > 0
-      ? article.stockage_options
+      ? (article.stockage_options as StockageOption[])
       : [{ stockage: "128GB", prix: article?.prix || 0, quantite: article?.stock || 0 }];
 
   const [stockageOptions, setStockageOptions] = useState<StockageOption[]>(initialStockage);
@@ -379,7 +385,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
               <div key={idx} className="flex items-center gap-2">
                 <div className="flex-1">
                   <input
-                    placeholder="Stockage (128GB)"
+                    placeholder="Stockage (ex: 128GB)"
                     required
                     value={opt.stockage}
                     onChange={(e) => handlePalierChange(idx, "stockage", e.target.value)}
