@@ -25,8 +25,6 @@ type Props = {
   onDeactivated: (id: string) => void;
 };
 
-const CHINESE_BRANDS = ["Xiaomi", "Redmi", "Oppo", "Realme", "Vivo", "Huawei", "Chinoise"];
-
 const emptyInput: ArticleInput = {
   nom: "",
   categorie: "",
@@ -177,9 +175,6 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
         ? "reconditionne"
         : "neuf";
 
-    const marqueLower = input.marque.toLowerCase();
-    const estChinoise = CHINESE_BRANDS.some((b) => marqueLower.includes(b.toLowerCase()));
-
     const payload: ArticleInput & Record<string, unknown> = {
       ...input,
       prix: prixMin,
@@ -194,8 +189,6 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
       })),
       attributs: {
         ...(article?.attributs || {}),
-        marque: input.marque,
-        est_chinoise: estChinoise || marqueLower.includes("chinoise"),
       },
     };
 
@@ -220,7 +213,6 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
       {
         ...article!,
         ...payload,
-        marque: input.marque || null,
         couleur: input.couleur || null,
         description: input.description || null,
         images,
@@ -364,7 +356,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
             />
           </Field>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Catégorie" required>
               <input
                 required
@@ -375,34 +367,6 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
               />
             </Field>
 
-            <Field label="Marque">
-              <input
-                placeholder="ex: Apple, Xiaomi, Redmi, Oppo..."
-                value={input.marque}
-                onChange={(e) => updateField("marque", e.target.value)}
-                className="input"
-              />
-              <div className="flex flex-wrap gap-1 mt-1">
-                <span className="text-[10px] text-[var(--text-dim)] self-center mr-1">Ajouter marque chinoise:</span>
-                {CHINESE_BRANDS.map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => {
-                      if (!input.marque.toLowerCase().includes(b.toLowerCase())) {
-                        updateField("marque", input.marque ? `${input.marque}, ${b}` : b);
-                      }
-                    }}
-                    className="rounded bg-[var(--bg-input)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--text-dim)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                  >
-                    + {b}
-                  </button>
-                ))}
-              </div>
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Couleur(s) disponible(s)">
               <input
                 placeholder="ex: Noir, Bleu, Or"
@@ -411,6 +375,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
                 className="input"
               />
             </Field>
+
             <Field label="Devise">
               <input
                 value={input.devise}
@@ -448,25 +413,27 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
               </label>
             </div>
 
+            {/* CHAMP BATTERIE TRÈS COMPACT */}
             {hasReconditionne && (
-              <div className="mt-2 pt-3 border-t border-[var(--border)] flex items-center gap-3">
-                <Field label="Santé Batterie pour Reconditionné (%)" required>
+              <div className="mt-2 pt-2.5 border-t border-[var(--border)] flex items-center gap-2 text-xs">
+                <span className="font-semibold text-[var(--text-dim)]">
+                  Batterie reconditionné <span className="text-[var(--danger)]">*</span> :
+                </span>
+                <div className="flex items-center gap-1">
                   <input
                     type="number"
                     min={1}
                     max={100}
                     required={hasReconditionne}
-                    placeholder="ex: 88"
+                    placeholder="85"
                     value={batteriePct}
                     onChange={(e) =>
                       setBatteriePct(e.target.value === "" ? "" : Number(e.target.value))
                     }
-                    className="input w-32 font-bold text-[var(--accent)] text-center text-base"
+                    className="input w-16 px-2 py-1 text-center text-xs font-bold text-[var(--accent)]"
                   />
-                </Field>
-                <span className="text-xs text-[var(--text-dim)] mt-4">
-                  (Batterie certifiée pour l&apos;exemplaire reconditionné)
-                </span>
+                  <span className="font-semibold text-[var(--text-dim)]">%</span>
+                </div>
               </div>
             )}
           </div>
