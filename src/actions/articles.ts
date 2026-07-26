@@ -2,6 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  type ArticleEtat,
+  type StockageOption,
+  validerCoherenceEtat,
+} from "@/lib/types";
 
 export type ArticleInput = {
   nom: string;
@@ -13,6 +18,13 @@ export type ArticleInput = {
   stock: number;
   description: string;
   actif: boolean;
+  // Champs de la refonte catalogue — absents avant ce correctif, donc
+  // silencieusement ignorés par createArticle/updateArticle malgré le
+  // payload envoyé par ArticleForm.tsx.
+  etat?: ArticleEtat;
+  batterie_pct?: number | null;
+  stockage_options?: StockageOption[];
+  attributs?: Record<string, unknown>;
 };
 
 export type ActionResult =
@@ -39,6 +51,16 @@ function validateArticleInput(input: ArticleInput): string | null {
   if (!input.categorie?.trim()) return "La catégorie est obligatoire.";
   if (Number.isNaN(input.prix) || input.prix < 0) return "Le prix doit être un nombre positif.";
   if (Number.isNaN(input.stock) || input.stock < 0) return "Le stock doit être un nombre positif ou nul.";
+
+  if (input.etat) {
+    const erreurEtat = validerCoherenceEtat(
+      input.etat,
+      input.batterie_pct,
+      input.stockage_options
+    );
+    if (erreurEtat) return erreurEtat;
+  }
+
   return null;
 }
 
@@ -58,6 +80,10 @@ export async function createArticle(input: ArticleInput): Promise<ActionResult> 
     description: input.description?.trim() || null,
     actif: input.actif,
     images: [],
+    etat: input.etat ?? null,
+    batterie_pct: input.etat === "neuf" ? null : input.batterie_pct ?? null,
+    stockage_options: input.stockage_options ?? [],
+    attributs: input.attributs ?? {},
   });
 
   if (error) {
@@ -88,6 +114,10 @@ export async function updateArticle(
       stock: input.stock,
       description: input.description?.trim() || null,
       actif: input.actif,
+      etat: input.etat ?? null,
+      batterie_pct: input.etat === "neuf" ? null : input.batterie_pct ?? null,
+      stockage_options: input.stockage_options ?? [],
+      attributs: input.attributs ?? {},
     })
     .eq("id", id)
     .eq("client_id", getClientId()); // ceinture + bretelles : on ne modifie que ses propres articles
