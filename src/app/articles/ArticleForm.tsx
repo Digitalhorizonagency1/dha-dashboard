@@ -1,136 +1,88 @@
 "use client";
 
-import React, { useState } from "react";
-import type { Article } from "@/lib/types";
-import { createClient } from "@supabase/supabase-js";
+import { useRef, useState } from "react";
+import type { Article, StockageOption } from "@/lib/types";
+import {
+  createArticle,
+  updateArticle,
+  deleteArticle,
+  uploadArticlePhoto,
+  removeArticlePhoto,
+  type ArticleInput,
+} from "@/actions/articles";
 
-// Client Supabase sécurisé avec fallbacks
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(
-  supabaseUrl || "https://placeholder.supabase.co",
-  supabaseAnonKey || "placeholder"
-);
-
-export interface StockageOption {
-  stockage: string;
-  prix: number;
-  quantite: number;
-}
-
-interface ArticleFormProps {
+type Props = {
   article: Article | null;
   onClose: () => void;
   onSaved: (article: Article, isNew: boolean) => void;
-  onDeactivated?: (id: string) => void;
-}
+  onDeactivated: (id: string) => void;
+};
 
-// Helper 1: Extraction sécurisée des paliers de stockage
-function parseStockageOptions(rawOptions: unknown): StockageOption[] {
-  let opts: unknown = rawOptions;
-  if (typeof opts === "string") {
-    try {
-      opts = JSON.parse(opts);
-    } catch {
-      opts = [];
-    }
-  }
-  if (Array.isArray(opts) && opts.length > 0) {
-    return opts.map((item: any) => ({
-      stockage: String(item?.stockage || "Standard"),
-      prix: Number(item?.prix) || 0,
-      quantite: Number(item?.quantite ?? item?.stock) || 0,
-    }));
-  }
-  return [];
-}
+const emptyInput: ArticleInput = {
+  nom: "",
+  categorie: "",
+  marque: "",
+  couleur: "",
+  prix: 0,
+  devise: "XOF",
+  stock: 0,
+  description: "",
+  actif: true,
+};
 
-// Helper 2: Extraction sécurisée des URLs d'images
-function parseImages(rawImages: unknown): string[] {
-  if (Array.isArray(rawImages)) {
-    return rawImages.map((img) => String(img)).filter(Boolean);
-  }
-  if (typeof rawImages === "string") {
-    try {
-      const parsed = JSON.parse(rawImages);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch {
-      return rawImages.split("\n").map((s) => s.trim()).filter(Boolean);
-    }
-  }
-  return [];
-}
-
-export default function ArticleForm({
-  article,
-  onClose,
-  onSaved,
-  onDeactivated,
-}: ArticleFormProps) {
-  const isNew = !article?.id;
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Sanitisation des données existantes
-  const existingImages = parseImages(article?.images);
-  const parsedStockage = parseStockageOptions(article?.stockage_options);
-
-  // États du formulaire
-  const [nom, setNom] = useState(article?.nom || "");
-  const [categorie, setCategorie] = useState(article?.categorie || "smartphone");
-  const [marque, setMarque] = useState(
-    article?.marque || (article?.attributs?.marque as string) || ""
+export default function ArticleForm({ article, onClose, onSaved, onDeactivated }: Props) {
+  const isNew = article === null;
+  const [input, setInput] = useState<ArticleInput>(
+    article
+      ? {
+          nom: article.nom,
+          categorie: article.categorie,
+          marque: article.marque ?? "",
+          couleur: article.couleur ?? "",
+          prix: article.prix,
+          devise: article.devise,
+          stock: article.stock,
+          description: article.description ?? "",
+          actif: article.actif,
+        }
+      : emptyInput
   );
-  const [couleur, setCouleur] = useState(article?.couleur || "");
-  const [devise, setDevise] = useState(article?.devise || "FCFA");
-  const [description, setDescription] = useState(article?.description || "");
-  const [imagesText, setImagesText] = useState(existingImages.join("\n"));
 
-  // Case à cocher Reconditionné
+  // État Reconditionné & Batterie
   const [isReconditionne, setIsReconditionne] = useState<boolean>(
     article?.etat === "reconditionne"
   );
-
-  // Pourcentage de la batterie
   const [batteriePct, setBatteriePct] = useState<number | "">(
     article?.batterie_pct ?? 85
   );
 
-  // Initialisation des paliers de stockage
+  // Paliers de stockage (Capacités, Prix & Stocks)
   const initialStockage: StockageOption[] =
-    parsedStockage.length > 0
-      ? parsedStockage
-      : [
-          {
-            stockage: "128GB",
-            prix: Number(article?.prix) || 0,
-            quantite: Number(article?.stock) || 1,
-          },
-        ];
+    article?.stockage_options &&
+    Array.isArray(article.stockage_options) &&
+    article.stockage_options.length > 0
+      ? article.stockage_options
+      : [{ stockage: "128GB", prix: article?.prix || 0, quantite: article?.stock || 0 }];
 
   const [stockageOptions, setStockageOptions] = useState<StockageOption[]>(initialStockage);
 
-  // Calculs dynamiques
-  const prixMin =
-    stockageOptions.length > 0
-      ? Math.min(...stockageOptions.map((o) => Number(o.prix) || 0))
-      : Number(article?.prix) || 0;
+  const [images, setImages] = useState<string[]>(article?.images ?? []);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const stockTotal = stockageOptions.reduce(
-    (acc, o) => acc + (Number(o.quantite) || 0),
-    0
-  );
+  function updateField<K extends keyof ArticleInput>(key: K, value: ArticleInput[K]) {
+    setInput((prev) => ({ ...prev, [key]: value }));
+  }
 
   const handleAddPalier = () => {
-    setStockageOptions([
-      ...stockageOptions,
-      { stockage: "", prix: prixMin || 0, quantite: 1 },
-    ]);
+    setStockageOptions((prev) => [...prev, { stockage: "", prix: 0, quantite: 1 }]);
   };
 
   const handleRemovePalier = (idx: number) => {
     if (stockageOptions.length > 1) {
-      setStockageOptions(stockageOptions.filter((_, i) => i !== idx));
+      setStockageOptions((prev) => prev.filter((_, i) => i !== idx));
     }
   };
 
@@ -139,292 +91,328 @@ export default function ArticleForm({
     field: keyof StockageOption,
     value: string | number
   ) => {
-    const updated = [...stockageOptions];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setStockageOptions(updated);
+    setStockageOptions((prev) => {
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], [field]: value };
+      return updated;
+    });
   };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+    setSaving(true);
 
-    try {
-      const images = imagesText
-        .split("\n")
-        .map((u) => u.trim())
-        .filter((u) => u.length > 0);
+    const prixMin =
+      stockageOptions.length > 0
+        ? Math.min(...stockageOptions.map((o) => Number(o.prix) || 0))
+        : input.prix;
 
-      const etat = isReconditionne ? "reconditionne" : "neuf";
-      const batterie = isReconditionne ? Number(batteriePct) || 85 : null;
+    const stockTotal = stockageOptions.reduce(
+      (acc, o) => acc + (Number(o.quantite) || 0),
+      0
+    );
 
-      const cleanedOptions = stockageOptions.map((opt) => ({
+    const payload: ArticleInput & Record<string, unknown> = {
+      ...input,
+      prix: prixMin,
+      stock: stockTotal,
+      etat: isReconditionne ? "reconditionne" : "neuf",
+      batterie_pct: isReconditionne ? Number(batteriePct) || 85 : null,
+      stockage_options: stockageOptions.map((opt) => ({
         stockage: opt.stockage.trim() || "Standard",
         prix: Number(opt.prix) || 0,
         quantite: Number(opt.quantite) || 0,
-      }));
+      })),
+    };
 
-      const payload = {
-        nom,
-        categorie,
-        marque: marque || null,
-        couleur: couleur || null,
-        devise,
-        images,
-        description: description || null,
-        etat,
-        batterie_pct: batterie,
-        stockage_options: cleanedOptions,
-        prix: prixMin,
-        stock: stockTotal,
-        actif: article?.actif ?? true,
-        attributs: { ...(article?.attributs || {}), marque },
-      };
+    const result = isNew
+      ? await createArticle(payload as ArticleInput)
+      : await updateArticle(article!.id, payload as ArticleInput);
 
-      let resData: Article;
+    setSaving(false);
 
-      if (isNew) {
-        const { data, error: err } = await supabase
-          .from("catalogue_articles")
-          .insert(payload)
-          .select()
-          .single();
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
 
-        if (err) throw new Error(err.message);
-        resData = data as Article;
-      } else {
-        const { data, error: err } = await supabase
-          .from("catalogue_articles")
-          .update(payload)
-          .eq("id", article.id)
-          .select()
-          .single();
-
-        if (err) throw new Error(err.message);
-        resData = data as Article;
-      }
-
-      onSaved(resData, isNew);
+    if (isNew) {
       onClose();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erreur lors de l'enregistrement";
-      setError(msg);
-    } finally {
-      setLoading(false);
+      window.location.reload();
+      return;
+    }
+
+    onSaved(
+      {
+        ...article!,
+        ...payload,
+        marque: input.marque || null,
+        couleur: input.couleur || null,
+        description: input.description || null,
+        images,
+        etat: isReconditionne ? "reconditionne" : "neuf",
+        batterie_pct: isReconditionne ? Number(batteriePct) || 85 : null,
+        stockage_options: stockageOptions,
+      },
+      false
+    );
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !article) return;
+
+    setUploading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.set("file", file);
+
+    const result = await uploadArticlePhoto(article.id, formData);
+    setUploading(false);
+
+    e.target.value = "";
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    setImages((prev) => [result.url, ...prev]);
+  }
+
+  async function handleRemovePhoto(url: string) {
+    if (!article) return;
+    const previousImages = images;
+    setImages((prev) => prev.filter((u) => u !== url));
+
+    const result = await removeArticlePhoto(article.id, url);
+    if (!result.ok) {
+      setError(result.error);
+      setImages(previousImages);
     }
   }
 
+  async function handleDeactivate() {
+    if (!article) return;
+    if (!confirm(`Désactiver "${article.nom}" ? Il n'apparaîtra plus dans le bot.`)) return;
+
+    setSaving(true);
+    const result = await deleteArticle(article.id);
+    setSaving(false);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    onDeactivated(article.id);
+    onClose();
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
-      <div className="relative my-8 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 text-slate-800 space-y-6">
-        <div className="flex items-center justify-between border-b pb-4">
-          <h2 className="text-xl font-bold text-slate-900">
-            {isNew ? "Ajouter un article" : "Modifier l'article"}
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-[family-name:var(--font-display)] text-lg">
+            {isNew ? "Nouvel article" : "Modifier l'article"}
           </h2>
           <button
             onClick={onClose}
-            type="button"
-            className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+            aria-label="Fermer"
+            className="text-[var(--text-dim)] hover:text-[var(--text)]"
           >
             ✕
           </button>
         </div>
 
-        {error && (
-          <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm border border-red-200">
-            ⚠️ {error}
+        {!isNew && (
+          <div className="mb-5 flex flex-col gap-2">
+            <span className="text-sm text-[var(--text-dim)]">Photos</span>
+            <div className="flex flex-wrap gap-2">
+              {images.map((url) => (
+                <div key={url} className="group relative h-20 w-20 overflow-hidden rounded-md">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt="" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePhoto(url)}
+                    className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    Retirer
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="flex h-20 w-20 flex-col items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-dim)] hover:border-[var(--text-dim)]"
+              >
+                {uploading ? "Envoi…" : "+ Photo"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </div>
+            <span className="text-xs text-[var(--text-dim)]">
+              La première photo est utilisée comme image principale.
+            </span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Nom du produit & Catégorie */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Nom du produit *
-              </label>
+        {isNew && (
+          <p className="mb-4 rounded-md bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-dim)]">
+            Enregistrez d&apos;abord l&apos;article pour pouvoir y ajouter des photos.
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <Field label="Nom" required>
+            <input
+              required
+              value={input.nom}
+              onChange={(e) => updateField("nom", e.target.value)}
+              className="input"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Catégorie" required>
               <input
-                type="text"
                 required
-                placeholder="ex: iPhone 13"
-                value={nom}
-                onChange={(e) => setNom(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                value={input.categorie}
+                onChange={(e) => updateField("categorie", e.target.value)}
+                className="input"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Catégorie *
-              </label>
+            </Field>
+            <Field label="Marque">
               <input
-                type="text"
-                required
-                placeholder="ex: smartphone"
-                value={categorie}
-                onChange={(e) => setCategorie(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                value={input.marque}
+                onChange={(e) => updateField("marque", e.target.value)}
+                className="input"
               />
-            </div>
+            </Field>
           </div>
 
-          {/* Marque, Couleur, Devise */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Marque
-              </label>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Couleur">
               <input
-                type="text"
-                placeholder="ex: Apple"
-                value={marque}
-                onChange={(e) => setMarque(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                value={input.couleur}
+                onChange={(e) => updateField("couleur", e.target.value)}
+                className="input"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Couleur(s)
-              </label>
+            </Field>
+            <Field label="Devise">
               <input
-                type="text"
-                placeholder="ex: Noir, Bleu"
-                value={couleur}
-                onChange={(e) => setCouleur(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                value={input.devise}
+                onChange={(e) => updateField("devise", e.target.value)}
+                className="input"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Devise
-              </label>
-              <input
-                type="text"
-                value={devise}
-                onChange={(e) => setDevise(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-              />
-            </div>
+            </Field>
           </div>
 
-          {/* CASE À COCHER : RECONDITIONNÉ + POURCENTAGE BATTERIE */}
-          <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 space-y-3">
-            <div className="flex items-center gap-3">
+          {/* CASE À COCHER : RECONDITIONNÉ */}
+          <div className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-input)] p-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-[var(--text)] cursor-pointer select-none">
               <input
                 type="checkbox"
-                id="reconditionne-toggle"
                 checked={isReconditionne}
-                onChange={(e) => setIsReconditionne(e.target.checked)}
-                className="h-5 w-5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsReconditionne(checked);
+                  if (checked && !batteriePct) setBatteriePct(85);
+                }}
+                className="h-4 w-4 accent-[var(--accent)]"
               />
-              <label
-                htmlFor="reconditionne-toggle"
-                className="font-bold text-slate-800 cursor-pointer select-none"
-              >
-                Cet article est Reconditionné
-              </label>
-            </div>
+              Cet article est reconditionné
+            </label>
 
-            {/* APPARAÎT SEULEMENT SI COCHÉ */}
             {isReconditionne && (
-              <div className="pt-3 border-t border-slate-200 bg-amber-50/80 p-3 rounded-lg border border-amber-200 space-y-1">
-                <label className="block text-sm font-bold text-amber-900">
-                  Pourcentage de la batterie (%) *
-                </label>
-                <div className="flex items-center gap-3">
+              <div className="mt-1 pt-2 border-t border-[var(--border)]">
+                <Field label="Batterie (%)" required>
                   <input
                     type="number"
-                    min="1"
-                    max="100"
+                    min={1}
+                    max={100}
                     required={isReconditionne}
                     placeholder="ex: 88"
                     value={batteriePct}
                     onChange={(e) =>
                       setBatteriePct(e.target.value === "" ? "" : Number(e.target.value))
                     }
-                    className="w-28 rounded-lg border border-slate-300 p-2 text-center text-lg font-bold text-emerald-600 bg-white outline-none focus:ring-2 focus:ring-amber-500"
+                    className="input w-28 text-center font-bold text-[var(--accent)]"
                   />
-                  <span className="text-xs text-amber-800 font-medium">
-                    (Pourcentage certifié de la batterie)
-                  </span>
-                </div>
+                </Field>
               </div>
             )}
           </div>
 
           {/* PALIERS DE STOCKAGE & PRIX ASSOCIÉS */}
-          <div className="rounded-xl bg-amber-50/40 p-4 border border-amber-200 space-y-3">
+          <div className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-input)] p-3">
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-                  Capacités de Stockage & Prix *
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Associez chaque stockage à son prix et à son stock ({isReconditionne ? 'Reconditionné' : 'Neuf'}).
-                </p>
-              </div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-dim)]">
+                Capacités & Prix
+              </span>
               <button
                 type="button"
                 onClick={handleAddPalier}
-                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-amber-600"
+                className="text-xs font-medium text-[var(--accent)] hover:underline"
               >
                 + Ajouter une capacité
               </button>
             </div>
 
             {stockageOptions.map((opt, idx) => (
-              <div
-                key={idx}
-                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm"
-              >
-                <div className="w-1/3">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase">
-                    Stockage
-                  </label>
+              <div key={idx} className="flex items-center gap-2">
+                <div className="flex-1">
                   <input
-                    type="text"
+                    placeholder="Stockage (128GB)"
                     required
-                    placeholder="ex: 128GB"
                     value={opt.stockage}
                     onChange={(e) => handlePalierChange(idx, "stockage", e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 p-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500"
+                    className="input"
                   />
                 </div>
-
-                <div className="w-1/3">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase">
-                    Prix ({devise})
-                  </label>
+                <div className="flex-1">
                   <input
                     type="number"
+                    placeholder={`Prix (${input.devise})`}
                     required
-                    min="0"
-                    placeholder="ex: 245000"
+                    min={0}
                     value={opt.prix || ""}
                     onChange={(e) => handlePalierChange(idx, "prix", Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 p-1.5 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-amber-500"
+                    className="input font-semibold"
                   />
                 </div>
-
-                <div className="w-1/4">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase">
-                    Stock
-                  </label>
+                <div className="w-20">
                   <input
                     type="number"
+                    placeholder="Stock"
                     required
-                    min="0"
-                    placeholder="ex: 5"
+                    min={0}
                     value={opt.quantite}
                     onChange={(e) => handlePalierChange(idx, "quantite", Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-300 p-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500"
+                    className="input"
                   />
                 </div>
-
                 {stockageOptions.length > 1 && (
                   <button
                     type="button"
                     onClick={() => handleRemovePalier(idx)}
-                    className="mt-3 p-1.5 text-xs font-bold text-red-500 hover:text-red-700"
+                    className="p-1 text-xs text-[var(--danger)] hover:opacity-80"
                     title="Supprimer"
                   >
                     ✕
@@ -434,64 +422,83 @@ export default function ArticleForm({
             ))}
           </div>
 
-          {/* URLs Photos */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              URLs des Photos (une par ligne)
-            </label>
+          <Field label="Description">
             <textarea
-              rows={2}
-              placeholder="https://..."
-              value={imagesText}
-              onChange={(e) => setImagesText(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-mono outline-none focus:ring-2 focus:ring-amber-500"
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Description
-            </label>
-            <textarea
+              value={input.description}
+              onChange={(e) => updateField("description", e.target.value)}
               rows={3}
-              placeholder="Spécifications techniques..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+              className="input resize-none"
             />
-          </div>
+          </Field>
 
-          {/* Boutons d'actions */}
-          <div className="flex items-center justify-between pt-4 border-t">
-            {!isNew && onDeactivated && (
+          <label className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
+            <input
+              type="checkbox"
+              checked={input.actif}
+              onChange={(e) => updateField("actif", e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Actif (visible par le bot)
+          </label>
+
+          {error && (
+            <p role="alert" className="text-sm text-[var(--danger)]">
+              {error}
+            </p>
+          )}
+
+          <div className="mt-2 flex items-center justify-between gap-2">
+            {!isNew ? (
               <button
                 type="button"
-                onClick={() => onDeactivated(article!.id!)}
-                className="text-xs text-red-500 hover:underline"
+                onClick={handleDeactivate}
+                className="text-sm text-[var(--danger)] hover:opacity-80"
               >
-                Désactiver l'article
+                Désactiver l&apos;article
               </button>
+            ) : (
+              <span />
             )}
-            <div className="ml-auto flex gap-3">
+
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-full border border-[var(--border-strong)] px-4 py-2 text-sm text-[var(--text-dim)] hover:text-[var(--text)]"
               >
                 Annuler
               </button>
               <button
                 type="submit"
-                disabled={loading}
-                className="rounded-xl bg-amber-500 px-6 py-2 text-sm font-bold text-white shadow hover:bg-amber-600 disabled:opacity-50"
+                disabled={saving}
+                className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
               >
-                {loading ? "Enregistrement..." : "Enregistrer"}
+                {saving ? "Enregistrement…" : "Enregistrer"}
               </button>
             </div>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-[var(--text-dim)]">
+        {label}
+        {required && <span className="text-[var(--danger)]"> *</span>}
+      </span>
+      {children}
+    </label>
   );
 }
