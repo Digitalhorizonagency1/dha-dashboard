@@ -49,7 +49,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
           devise: article.devise,
           stock: article.stock,
           description: article.description ?? "",
-          actif: article.actif ?? true, // <-- CORRECTION ICI (garantit un booléen strict)
+          actif: article.actif ?? true,
         }
       : emptyInput
   );
@@ -134,7 +134,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
 
     const result = isNew
       ? await createArticle(payload as ArticleInput)
-      : await updateArticle(article!.id, payload as ArticleInput);
+      : await updateArticle(article!.id!, payload as ArticleInput); // <-- CORRECTION (id!)
 
     setSaving(false);
 
@@ -167,7 +167,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !article) return;
+    if (!file || !article || !article.id) return;
 
     setUploading(true);
     setError(null);
@@ -189,7 +189,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
   }
 
   async function handleRemovePhoto(url: string) {
-    if (!article) return;
+    if (!article || !article.id) return;
     const previousImages = images;
     setImages((prev) => prev.filter((u) => u !== url));
 
@@ -201,7 +201,7 @@ export default function ArticleForm({ article, onClose, onSaved, onDeactivated }
   }
 
   async function handleDeactivate() {
-    if (!article) return;
+    if (!article || !article.id) return;
     if (!confirm(`Désactiver "${article.nom}" ? Il n'apparaîtra plus dans le bot.`)) return;
 
     setSaving(true);
