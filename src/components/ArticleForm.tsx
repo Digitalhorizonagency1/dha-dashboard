@@ -25,20 +25,22 @@ export default function ArticleForm({ initialArticle, onSuccess, onCancel }: Art
     initialArticle?.images ? initialArticle.images.join('\n') : ''
   );
 
-  // État & Batterie
+  // État (Neuf par défaut, ou Reconditionné)
   const [etat, setEtat] = useState<ArticleEtat>(initialArticle?.etat || 'neuf');
+  
+  // Batterie (%) - Spécifique si Reconditionné est coché
   const [batteriePct, setBatteriePct] = useState<number | ''>(
     initialArticle?.batterie_pct ?? ''
   );
 
-  // Dynamic Stockage options
+  // Dynamic Stockage options (Disponible pour Neuf ET Reconditionné)
   const [stockageOptions, setStockageOptions] = useState<StockageOption[]>(
     initialArticle?.stockage_options && initialArticle.stockage_options.length > 0
       ? initialArticle.stockage_options
       : [{ stockage: '128GB', quantite: 1, prix: 0 }]
   );
 
-  // Calculs en direct
+  // Calculs automatiques
   const prixMinimum = stockageOptions.length > 0
     ? Math.min(...stockageOptions.map(opt => Number(opt.prix) || 0))
     : 0;
@@ -47,11 +49,16 @@ export default function ArticleForm({ initialArticle, onSuccess, onCancel }: Art
 
   // Handlers pour les paliers de stockage
   const handleAddPalier = () => {
-    setStockageOptions([...stockageOptions, { stockage: '256GB', quantite: 1, prix: prixMinimum || 0 }]);
+    setStockageOptions([
+      ...stockageOptions, 
+      { stockage: '256GB', quantite: 1, prix: prixMinimum || 0 }
+    ]);
   };
 
   const handleRemovePalier = (index: number) => {
-    setStockageOptions(stockageOptions.filter((_, i) => i !== index));
+    if (stockageOptions.length > 1) {
+      setStockageOptions(stockageOptions.filter((_, i) => i !== index));
+    }
   };
 
   const handlePalierChange = (index: number, field: keyof StockageOption, value: string | number) => {
@@ -109,7 +116,7 @@ export default function ArticleForm({ initialArticle, onSuccess, onCancel }: Art
           {initialArticle?.id ? 'Modifier l’article' : 'Ajouter un article au catalogue'}
         </h2>
         <p className="text-sm text-slate-500">
-          Configurez le modèle, l’état physique et les déclinaisons de prix par stockage.
+          Configurez le modèle, l’état physique et les déclinaisons de stockage & prix.
         </p>
       </div>
 
@@ -146,87 +153,85 @@ export default function ArticleForm({ initialArticle, onSuccess, onCancel }: Art
         </div>
       </div>
 
-      {/* État & Batterie (SECTION CLÉ) */}
-      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">État du Produit</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Condition *</label>
-            <select
-              value={etat}
-              onChange={(e) => {
-                const newEtat = e.target.value as ArticleEtat;
-                setEtat(newEtat);
-                if (newEtat === 'neuf') setBatteriePct('');
-                else if (!batteriePct) setBatteriePct(85);
-              }}
-              className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-slate-800 font-medium"
-            >
-              <option value="neuf">✨ Neuf</option>
-              <option value="reconditionne">🔄 Reconditionné</option>
-            </select>
-          </div>
+      {/* CASE À COCHER : RECONDITIONNÉ + DÉROULEMENT CONDITIONNEL BATTERIE */}
+      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id="reconditionne-toggle"
+            checked={etat === 'reconditionne'}
+            onChange={(e) => {
+              const isChecked = e.target.checked;
+              setEtat(isChecked ? 'reconditionne' : 'neuf');
+              if (isChecked) {
+                if (!batteriePct) setBatteriePct(85);
+              } else {
+                setBatteriePct('');
+              }
+            }}
+            className="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+          />
+          <label htmlFor="reconditionne-toggle" className="font-bold text-slate-800 cursor-pointer select-none">
+            Cet article est Reconditionné
+          </label>
+        </div>
 
-          {etat === 'reconditionne' && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Batterie (%) <span className="text-red-500">* Obligatoire</span>
-              </label>
+        {/* APPARAÎT AUTOMATIQUEMENT SOUS LA CASE QUAND RECONDITIONNÉ EST COCHÉ */}
+        {etat === 'reconditionne' && (
+          <div className="mt-3 pt-3 border-t border-slate-200 bg-amber-50 p-3.5 rounded-lg border border-amber-200 space-y-2">
+            <label className="block text-sm font-bold text-amber-900">
+              Pourcentage de Batterie (%) <span className="text-red-500">* Obligatoire</span>
+            </label>
+            <div className="flex items-center gap-3">
               <input
                 type="number"
                 min="1"
                 max="100"
-                required
+                required={etat === 'reconditionne'}
                 placeholder="ex: 88"
                 value={batteriePct}
                 onChange={(e) => setBatteriePct(e.target.value === '' ? '' : Number(e.target.value))}
-                className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-slate-800 font-semibold text-emerald-600"
+                className="w-32 px-3 py-1.5 border bg-white rounded-lg font-extrabold text-emerald-600 outline-none focus:ring-2 focus:ring-amber-500 text-lg"
               />
+              <span className="text-xs text-amber-800 font-medium">
+                (Précisez le % certifié de la batterie pour cet article)
+              </span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Paliers de Stockage & Prix (SECTION DYNAMIQUE) */}
+      {/* PALIERS DE STOCKAGE & PRIX CORRESPONDANTS (NEUF ET RECONDITIONNÉ) */}
       <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-4">
         <div className="flex justify-between items-center">
           <div>
-            <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wide">Paliers de Stockage, Stocks & Prix</h3>
-            <p className="text-xs text-indigo-600">Définissez chaque capacité avec sa quantité et son prix propre.</p>
+            <h3 className="text-sm font-bold text-indigo-900 uppercase tracking-wide">
+              Capacités de Stockage & Prix Associés *
+            </h3>
+            <p className="text-xs text-indigo-600">
+              Saisissez chaque capacité avec son prix et son stock propre ({etat === 'reconditionne' ? 'Article Reconditionné' : 'Article Neuf'}).
+            </p>
           </div>
           <button
             type="button"
             onClick={handleAddPalier}
             className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow transition"
           >
-            + Ajouter un palier
+            + Ajouter un stockage / prix
           </button>
         </div>
 
         {stockageOptions.map((opt, index) => (
-          <div key={index} className="flex flex-wrap md:flex-nowrap items-center gap-3 bg-white p-3 rounded-lg border border-indigo-200">
+          <div key={index} className="flex flex-wrap md:flex-nowrap items-center gap-3 bg-white p-3 rounded-lg border border-indigo-200 shadow-sm">
             <div className="w-full md:w-1/3">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Capacité</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Capacité / Stockage</label>
               <input
                 type="text"
                 placeholder="ex: 128GB"
                 required
                 value={opt.stockage}
                 onChange={(e) => handlePalierChange(index, 'stockage', e.target.value)}
-                className="w-full px-2.5 py-1.5 border rounded text-sm text-slate-800"
-              />
-            </div>
-
-            <div className="w-1/2 md:w-1/4">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Stock disponible</label>
-              <input
-                type="number"
-                min="0"
-                required
-                value={opt.quantite}
-                onChange={(e) => handlePalierChange(index, 'quantite', Number(e.target.value))}
-                className="w-full px-2.5 py-1.5 border rounded text-sm text-slate-800"
+                className="w-full px-2.5 py-1.5 border rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
@@ -236,9 +241,23 @@ export default function ArticleForm({ initialArticle, onSuccess, onCancel }: Art
                 type="number"
                 min="0"
                 required
-                value={opt.prix}
+                placeholder="ex: 245000"
+                value={opt.prix || ''}
                 onChange={(e) => handlePalierChange(index, 'prix', Number(e.target.value))}
-                className="w-full px-2.5 py-1.5 border rounded text-sm font-bold text-slate-800"
+                className="w-full px-2.5 py-1.5 border rounded-lg text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="w-1/2 md:w-1/4">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Stock disponible</label>
+              <input
+                type="number"
+                min="0"
+                required
+                placeholder="ex: 5"
+                value={opt.quantite}
+                onChange={(e) => handlePalierChange(index, 'quantite', Number(e.target.value))}
+                className="w-full px-2.5 py-1.5 border rounded-lg text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
@@ -247,7 +266,7 @@ export default function ArticleForm({ initialArticle, onSuccess, onCancel }: Art
                 type="button"
                 onClick={() => handleRemovePalier(index)}
                 className="mt-5 text-red-500 hover:text-red-700 p-1 text-sm font-bold"
-                title="Supprimer ce palier"
+                title="Supprimer cette capacité"
               >
                 ✕
               </button>
