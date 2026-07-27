@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Article } from "@/lib/types";
+import type { Article, StockageOption } from "@/lib/types";
 import {
   createArticle,
   updateArticle,
@@ -10,13 +10,6 @@ import {
   removeArticlePhoto,
   type ArticleInput,
 } from "@/actions/articles";
-
-export interface StockageOption {
-  stockage: string;
-  prix: number;
-  quantite: number;
-  etat?: "neuf" | "reconditionne";
-}
 
 type Props = {
   article: Article | null;
